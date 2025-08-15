@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  openproject-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openproject-mcp-server:latest
+    container_name: openproject-mcp-server
+    restart: unless-stopped
+    environment:
+      - OPENPROJECT_BASE_URL=${OPENPROJECT_BASE_URL:-http://openproject:8080}
+      - OPENPROJECT_API_KEY=${OPENPROJECT_API_KEY}
+      - OPENPROJECT_TIMEOUT=${OPENPROJECT_TIMEOUT:-30}
+      - OPENPROJECT_VERIFY_SSL=${OPENPROJECT_VERIFY_SSL:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    volumes:
+      - ./logs:/app/logs:rw
+      - ./data:/app/data:rw
+    networks:
+      - openproject-network
+    depends_on:
+      - openproject
+    healthcheck:
+      test: ["CMD", "python", "-c", "from openproject_mcp_server.config import Config; Config.from_env(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # OpenProject service for the all-in-one local stack
+  openproject:
+    image: openproject/community:13
+    container_name: openproject
+    restart: unless-stopped
+    environment:
+      - OPENPROJECT_SECRET_KEY_BASE=${OPENPROJECT_SECRET_KEY_BASE:-your-secret-key-here}
+      - OPENPROJECT_HOST__NAME=${OPENPROJECT_HOST_NAME:-localhost:8080}
+      - OPENPROJECT_HTTPS=false
+      - DATABASE_URL=postgresql://openproject:openproject@db:5432/openproject
+      - RAILS_CACHE_STORE=memcache
+      - OPENPROJECT_CACHE__MEMCACHE__SERVER=cache:11211
+      - OPENPROJECT_RAILS__RELATIVE__URL__ROOT=""
+    ports:
+      - "8080:8080"
+    volumes:
+      - openproject_data:/var/openproject/assets
+    networks:
+      - openproject-network
+    depends_on:
+      - db
+      - cache
+
+  db:
+    image: postgres:13
+    container_name: openproject-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=openproject
+      - POSTGRES_USER=openproject
+      - POSTGRES_PASSWORD=openproject
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - openproject-network
+
+  cache:
+    image: memcached:1.6-alpine
+    container_name: openproject-cache
+    restart: unless-stopped
+    networks:
+      - openproject-network
+
+volumes:
+  openproject_data:
+  postgres_data:
+
+networks:
+  openproject-network:
+    driver: bridge

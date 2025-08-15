@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  openproject-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openproject-mcp-server:latest
+    container_name: openproject-mcp-server
+    restart: unless-stopped
+    environment:
+      # required: OpenProject connection
+      - OPENPROJECT_BASE_URL=${OPENPROJECT_BASE_URL}
+      - OPENPROJECT_API_KEY=${OPENPROJECT_API_KEY}
+
+      # optional knobs
+      - OPENPROJECT_TIMEOUT=${OPENPROJECT_TIMEOUT:-30}
+      - OPENPROJECT_VERIFY_SSL=${OPENPROJECT_VERIFY_SSL:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    volumes:
+      # persist logs + data
+      - ./logs:/app/logs:rw
+      - ./data:/app/data:rw
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "python", "-c", "from openproject_mcp_server.config import Config; Config.from_env(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  default:
+    external: true
+    name: openproject_default  # join an existing OpenProject network
