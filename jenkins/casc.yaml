@@ -1,0 +1,31 @@
+jenkins:
+  systemMessage: "openproject-mcp CI/CD - configured via JCasC"
+  numExecutors: 2
+  scmCheckoutRetryCount: 2
+  mode: NORMAL
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  authorizationStrategy:
+    globalMatrix:
+      permissions:
+        - "Overall/Administer:admin"
+        - "Overall/Read:authenticated"
+
+security:
+  authorizeProject:
+    strategy: "triggeringUsersAuthorization"
+  remotingSecurity:
+    enabled: true
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+
+jobs:
+  - file: /var/jenkins_home/jobs.d/openproject-mcp.groovy
