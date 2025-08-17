@@ -1,0 +1,17 @@
+configuration-as-code
+git
+github-branch-source
+workflow-aggregator
+pipeline-stage-view
+matrix-auth
+authorize-project
+credentials-binding
+timestamper
+ws-cleanup
+build-timeout
+mailer
+email-ext
+job-dsl
+docker-workflow
+kubernetes
+kubernetes-cli
