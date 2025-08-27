@@ -1,0 +1,6 @@
+---
+# vars shared across every host in the dev inventory.
+
+timezone: "America/New_York"
+ssh_user: ubuntu
+python_interpreter: /usr/bin/python3
