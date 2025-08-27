@@ -1,0 +1,57 @@
+---
+# Install + run the openproject-mcp server as a docker-backed systemd
+# unit. Prod runs on the helm chart on EKS; this role exists for the
+# plain-EC2 cases (bastion debugging, docker-on-VM smoke test).
+
+- name: ensure docker is installed
+  ansible.builtin.package:
+    name: docker.io
+    state: present
+
+- name: ensure docker daemon is running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: create mcp service user
+  ansible.builtin.user:
+    name: "{{ mcp_server_user }}"
+    group: "{{ mcp_server_group | default(mcp_server_user) }}"
+    home: "{{ mcp_server_home }}"
+    shell: /usr/sbin/nologin
+    system: true
+    state: present
+
+- name: ensure mcp home dir exists
+  ansible.builtin.file:
+    path: "{{ mcp_server_home }}"
+    owner: "{{ mcp_server_user }}"
+    group: "{{ mcp_server_group | default(mcp_server_user) }}"
+    mode: '0750'
+    state: directory
+
+- name: render env file
+  ansible.builtin.template:
+    src: openproject.env.j2
+    dest: "{{ mcp_server_home }}/openproject.env"
+    owner: "{{ mcp_server_user }}"
+    group: "{{ mcp_server_group | default(mcp_server_user) }}"
+    mode: '0640'
+  notify: restart-mcp-server
+
+- name: install systemd unit
+  ansible.builtin.template:
+    src: mcp-server.service.j2
+    dest: /etc/systemd/system/mcp-server.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart-mcp-server
+
+- name: enable + start mcp-server
+  ansible.builtin.systemd:
+    name: mcp-server
+    daemon_reload: true
+    enabled: true
+    state: started

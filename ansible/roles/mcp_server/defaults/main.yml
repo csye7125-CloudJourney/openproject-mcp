@@ -1,0 +1,19 @@
+---
+# defaults for the mcp_server role. override per env in group_vars.
+
+mcp_server_user: mcp
+mcp_server_group: mcp
+mcp_server_home: /opt/mcp-server
+mcp_server_image: gsst3ja/openproject-mcp:latest
+mcp_server_port: 8080
+mcp_server_transport: http
+
+# OpenProject API. Real values land via Secrets Manager (ESO)
+# or env injection at deploy time.
+openproject_base_url: "https://openproject.t3ja.com"
+openproject_api_token: ""
+
+# Kafka. prod uses MSK with SASL_SSL + AWS_MSK_IAM.
+kafka_bootstrap: ""
+kafka_security_protocol: "PLAINTEXT"
+kafka_sasl_mechanism: ""

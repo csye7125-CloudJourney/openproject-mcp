@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenProject MCP server (docker)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+
+ExecStartPre=-/usr/bin/docker rm -f mcp-server
+ExecStartPre=/usr/bin/docker pull {{ mcp_server_image }}
+ExecStart=/usr/bin/docker run --rm --name mcp-server \
+    --env-file {{ mcp_server_home }}/openproject.env \
+    -p {{ mcp_server_port }}:{{ mcp_server_port }} \
+    {{ mcp_server_image }}
+ExecStop=/usr/bin/docker stop mcp-server
+
+[Install]
+WantedBy=multi-user.target
