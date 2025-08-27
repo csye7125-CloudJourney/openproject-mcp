@@ -1,0 +1,61 @@
+---
+# Baseline a freshly provisioned bastion: apt patch, install the usual
+# tooling, lock sshd down to key auth with root disabled, and install
+# tailscale so it joins the tailnet.
+#
+# Targets the `bastions` group from the aws_ec2 dynamic inventory.
+
+- name: bootstrap bastion host
+  hosts: bastions
+  become: true
+  gather_facts: true
+
+  vars:
+    base_packages:
+      - curl
+      - gnupg
+      - ca-certificates
+      - fail2ban
+      - unattended-upgrades
+      - htop
+
+  tasks:
+    - name: apt update + upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: install base packages
+      ansible.builtin.apt:
+        name: "{{ base_packages }}"
+        state: present
+
+    - name: harden sshd, disable root login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify: restart sshd
+
+    - name: harden sshd, disable password auth
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify: restart sshd
+
+    - name: install tailscale via official script
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://tailscale.com/install.sh | sh
+      args:
+        creates: /usr/bin/tailscale
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
