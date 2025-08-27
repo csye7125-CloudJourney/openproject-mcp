@@ -1,0 +1,11 @@
+---
+# Smoke test playbook, runs the role against localhost.
+# `molecule test` is the proper matrix runner; this just answers
+# "did the templates render".
+
+- name: mcp_server smoke
+  hosts: localhost
+  connection: local
+  become: false
+  roles:
+    - role: mcp_server

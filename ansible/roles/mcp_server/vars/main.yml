@@ -1,0 +1,7 @@
+---
+# internal vars, not overridden per env. tweakable things belong
+# in defaults/main.yml.
+
+mcp_server_health_path: /healthz
+mcp_server_ready_path: /readyz
+mcp_server_metrics_path: /metrics

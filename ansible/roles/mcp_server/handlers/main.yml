@@ -1,0 +1,6 @@
+---
+- name: restart-mcp-server
+  ansible.builtin.systemd:
+    name: mcp-server
+    daemon_reload: true
+    state: restarted
