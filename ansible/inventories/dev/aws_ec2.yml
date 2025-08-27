@@ -1,0 +1,32 @@
+---
+# Dynamic inventory from EC2 (dev account). Hosts get grouped by the
+# `role` tag terraform stamps on each instance; hosts.yml just declares
+# the group names so typos surface during dry-runs.
+
+plugin: amazon.aws.aws_ec2
+
+aws_profile: openproject-mcp-dev
+regions:
+  - us-east-1
+
+filters:
+  instance-state-name:
+    - running
+  tag:Project: openproject-mcp
+  tag:Environment: dev
+
+keyed_groups:
+  - key: tags.role
+    prefix: ""
+    separator: ""
+  - key: placement.availability_zone
+    prefix: az
+  - key: tags.Environment
+    prefix: env
+
+hostnames:
+  - tag:Name
+  - private-ip-address
+
+compose:
+  ansible_host: private_ip_address
