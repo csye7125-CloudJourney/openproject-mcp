@@ -1,0 +1,28 @@
+---
+# Sync authorized_keys onto every host for the ops user.
+# Pulls public keys from files/ on the control machine; rotation
+# is "drop the new pub key in files/, rerun this play".
+
+- name: distribute authorized ssh keys
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    ops_user: "{{ ssh_user | default('ubuntu') }}"
+    pubkey_files:
+      - t3ja.pub
+
+  tasks:
+    - name: ensure ops user exists
+      ansible.builtin.user:
+        name: "{{ ops_user }}"
+        shell: /bin/bash
+        state: present
+
+    - name: push authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ops_user }}"
+        state: present
+        key: "{{ lookup('file', 'files/' + item) }}"
+      loop: "{{ pubkey_files }}"
