@@ -1,0 +1,2 @@
+aws_profile = "openproject-mcp-dev"
+aws_region  = "us-east-1"
