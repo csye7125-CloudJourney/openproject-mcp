@@ -1,0 +1,6 @@
+aws_profile      = "openproject-mcp-dev"
+aws_region       = "us-east-1"
+domain           = "t3ja.com"
+subdomain        = "dev"
+vpc_cidr         = "10.10.0.0/16"
+allowed_ssh_cidr = "0.0.0.0/0"
