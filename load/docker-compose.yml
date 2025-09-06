@@ -1,0 +1,66 @@
+version: "3.8"
+
+# Local load testing stack.
+# Brings up kafka + the MCP server so k6 can hammer the http/sse transport.
+# Real EKS+MSK runs use load/k6-eks.yaml, not this file.
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - load
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - load
+
+  mcp:
+    build:
+      context: ../apps/mcp-server
+      dockerfile: Dockerfile
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "8080"
+      OPENPROJECT_BASE_URL: http://openproject.invalid
+      OPENPROJECT_API_KEY: dummy-for-load
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      WEBHOOK_HMAC_SECRET: load-test-secret
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    networks:
+      - load
+
+  k6:
+    image: grafana/k6:0.51.0
+    depends_on:
+      - mcp
+    volumes:
+      - ./:/scripts:ro
+      - ./reports:/reports
+    environment:
+      MCP_BASE_URL: http://mcp:8080
+    networks:
+      - load
+    # override with: docker compose run --rm k6 run /scripts/healthz.js
+    entrypoint: ["k6"]
+    command: ["run", "/scripts/healthz.js"]
+
+networks:
+  load:
+    driver: bridge
