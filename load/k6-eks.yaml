@@ -1,0 +1,331 @@
+---
+# k6-operator TestRun CRDs for in-cluster runs against the real EKS+MSK
+# stack. assumes:
+#   - k6-operator installed via:
+#       kubectl apply -f https://github.com/grafana/k6-operator/releases/latest/download/bundle.yaml
+#   - scripts mounted via a ConfigMap (see below)
+#   - MCP service reachable at openproject-mcp.openproject-mcp.svc.cluster.local
+#   - reports shipped to s3 by the post-run sidecar
+#
+# launch:
+#   kubectl create configmap k6-scripts \
+#     --from-file=webhooks.js --from-file=mcp_tools.js \
+#     --from-file=lib/hmac.js --from-file=lib/payloads.js -n load
+#   kubectl apply -f load/k6-eks.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: load
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: mcp-tools-eks
+  namespace: load
+spec:
+  parallelism: 4
+  script:
+    configMap:
+      name: k6-scripts
+      file: mcp_tools.js
+  arguments: --tag env=eks --tag run=mcp-tools --out json=/reports/mcp-tools.json
+  runner:
+    image: grafana/k6:0.51.0
+    env:
+      - name: MCP_BASE_URL
+        value: http://openproject-mcp.openproject-mcp.svc.cluster.local:8080
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 2Gi
+    volumeMounts:
+      - name: reports
+        mountPath: /reports
+  initializer:
+    image: grafana/k6:0.51.0
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: webhooks-eks
+  namespace: load
+spec:
+  parallelism: 8
+  script:
+    configMap:
+      name: k6-scripts
+      file: webhooks.js
+  arguments: --tag env=eks --tag run=webhooks --out json=/reports/webhooks.json
+  runner:
+    image: grafana/k6:0.51.0
+    env:
+      - name: MCP_BASE_URL
+        value: http://openproject-mcp.openproject-mcp.svc.cluster.local:8080
+      - name: WEBHOOK_HMAC_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: webhook-hmac
+            key: secret
+    resources:
+      requests:
+        cpu: 1
+        memory: 1Gi
+      limits:
+        cpu: 4
+        memory: 4Gi
+    volumeMounts:
+      - name: reports
+        mountPath: /reports
+  initializer:
+    image: grafana/k6:0.51.0
+---
+# post-run sidecar uploads /reports to s3.
+# the k6-operator TestRun does not have an explicit "after" hook so we run
+# this as a separate Job, triggered manually or by Jenkins after TestRun is
+# Succeeded.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-reports-upload
+  namespace: load
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: k6-s3-uploader
+      restartPolicy: OnFailure
+      containers:
+        - name: aws-cli
+          image: amazon/aws-cli:2.15.0
+          command:
+            - sh
+            - -c
+            - |
+              aws s3 cp /reports s3://openproject-mcp-load-reports/$(date +%Y%m%d-%H%M%S)/ \
+                --recursive --only-show-errors
+          volumeMounts:
+            - name: reports
+              mountPath: /reports
+      volumes:
+        - name: reports
+          persistentVolumeClaim:
+            claimName: k6-reports
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k6-reports
+  namespace: load
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Scheduled in-cluster bench. Two CronJobs:
+#   1. k6-smoke-hourly: low-VU mcp_tools.js every hour. Keeps Grafana
+#      dashboards lit + catches regressions between manual ramp runs.
+#      Single VU per replica, parallelism=1, ~1 minute run.
+#   2. k6-ramp-daily: full ramping mcp_tools.js at 02:00 UTC nightly.
+#      parallelism=4, ~10 minute run. Numbers feed weekly trend.
+#
+# Pattern: each fire creates a fresh TestRun via `kubectl create -f -`
+# from a ConfigMap-mounted manifest with generateName, so concurrent
+# fires don't collide. Old TestRuns are GC'd by a maxRetained=10 sweep
+# in the same script.
+#
+# k6-operator does not ship a native CronTestRun CRD - this is the
+# documented pattern (grafana/k6-operator issue #161). Once the
+# operator adds one, swap to it.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k6-cron
+  namespace: load
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k6-cron
+  namespace: load
+rules:
+  - apiGroups: ["k6.io"]
+    resources: ["testruns"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k6-cron
+  namespace: load
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: k6-cron
+subjects:
+  - kind: ServiceAccount
+    name: k6-cron
+    namespace: load
+---
+# Templated TestRun manifests the CronJobs apply. Two files, one per
+# cadence. generateName lets each fire pick a unique name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-cron-manifests
+  namespace: load
+data:
+  smoke.yaml: |
+    apiVersion: k6.io/v1alpha1
+    kind: TestRun
+    metadata:
+      generateName: mcp-smoke-
+      namespace: load
+      labels:
+        bench: smoke
+    spec:
+      parallelism: 1
+      script:
+        configMap:
+          name: k6-scripts
+          file: mcp_tools.js
+      arguments: --tag env=eks --tag run=smoke --vus 5 --duration 60s --out json=/reports/smoke.json
+      runner:
+        image: grafana/k6:0.51.0
+        env:
+          - name: MCP_BASE_URL
+            value: http://openproject-mcp.openproject-mcp.svc.cluster.local:8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+          - name: reports
+            mountPath: /reports
+      initializer:
+        image: grafana/k6:0.51.0
+  ramp.yaml: |
+    apiVersion: k6.io/v1alpha1
+    kind: TestRun
+    metadata:
+      generateName: mcp-ramp-
+      namespace: load
+      labels:
+        bench: ramp
+    spec:
+      parallelism: 4
+      script:
+        configMap:
+          name: k6-scripts
+          file: mcp_tools.js
+      arguments: --tag env=eks --tag run=ramp --out json=/reports/ramp.json
+      runner:
+        image: grafana/k6:0.51.0
+        env:
+          - name: MCP_BASE_URL
+            value: http://openproject-mcp.openproject-mcp.svc.cluster.local:8080
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2
+            memory: 2Gi
+        volumeMounts:
+          - name: reports
+            mountPath: /reports
+      initializer:
+        image: grafana/k6:0.51.0
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k6-smoke-hourly
+  namespace: load
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          serviceAccountName: k6-cron
+          restartPolicy: OnFailure
+          containers:
+            - name: launch
+              image: bitnamilegacy/kubectl:1.30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "==> launching smoke TestRun"
+                  kubectl create -f /manifests/smoke.yaml
+                  echo "==> sweeping old smoke runs (keep newest 10)"
+                  kubectl -n load get testruns.k6.io \
+                    -l bench=smoke \
+                    --sort-by=.metadata.creationTimestamp \
+                    -o name | head -n -10 | xargs -r kubectl -n load delete
+              volumeMounts:
+                - name: manifests
+                  mountPath: /manifests
+          volumes:
+            - name: manifests
+              configMap:
+                name: k6-cron-manifests
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k6-ramp-daily
+  namespace: load
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          serviceAccountName: k6-cron
+          restartPolicy: OnFailure
+          containers:
+            - name: launch
+              image: bitnamilegacy/kubectl:1.30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "==> launching ramp TestRun"
+                  kubectl create -f /manifests/ramp.yaml
+                  echo "==> sweeping old ramp runs (keep newest 10)"
+                  kubectl -n load get testruns.k6.io \
+                    -l bench=ramp \
+                    --sort-by=.metadata.creationTimestamp \
+                    -o name | head -n -10 | xargs -r kubectl -n load delete
+              volumeMounts:
+                - name: manifests
+                  mountPath: /manifests
+          volumes:
+            - name: manifests
+              configMap:
+                name: k6-cron-manifests
