@@ -1,0 +1,24 @@
+---
+# Kills one random openproject-mcp pod every 30s for 5 minutes.
+# Sanity check that the HPA/PDB combo (min 2 replicas, maxUnavailable 1)
+# keeps a pod serving while Istio retries hide the blip from clients.
+#
+#   kubectl apply -f chaos/pod-kill.yaml
+#   kubectl describe podchaos mcp-pod-kill -n openproject-mcp
+#   kubectl delete podchaos mcp-pod-kill -n openproject-mcp    # stop early
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: mcp-pod-kill
+  namespace: openproject-mcp
+spec:
+  action: pod-kill
+  mode: one
+  duration: 5m
+  selector:
+    namespaces:
+      - openproject-mcp
+    labelSelectors:
+      app.kubernetes.io/name: openproject-mcp
+  scheduler:
+    cron: "@every 30s"
