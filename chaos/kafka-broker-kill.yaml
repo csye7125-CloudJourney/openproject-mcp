@@ -1,0 +1,31 @@
+---
+# Simulates an MSK broker outage. Managed MSK doesn't let chaos-mesh
+# kill brokers, so this only targets local docker-compose Kafka or a
+# self-hosted Strimzi cluster.
+#
+#   docker compose -f load/docker-compose.yml kill kafka
+#     (watch MCP logs; aiokafka retries the next broker)
+#
+#   kubectl apply -f chaos/kafka-broker-kill.yaml         # strimzi path
+#
+# Checks aiokafka (acks=all + idempotence) holds events through a
+# broker flip. Re-run webhooks.js after recovery and diff topic offsets
+# to confirm no events lost.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: kafka-broker-kill
+  namespace: kafka
+spec:
+  action: pod-kill
+  mode: one
+  duration: 10m
+  selector:
+    namespaces:
+      - kafka
+    labelSelectors:
+      strimzi.io/kind: Kafka
+      strimzi.io/component-type: kafka
+  scheduler:
+    # one broker every 2 minutes, gives consumers time to rebalance
+    cron: "@every 2m"
