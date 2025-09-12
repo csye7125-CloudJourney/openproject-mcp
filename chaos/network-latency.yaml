@@ -1,0 +1,29 @@
+---
+# Injects 200ms +/- 50ms latency on egress from MCP pods to
+# openproject.t3ja.com. Stand-in for a slow OpenProject API.
+# Checks httpx pool + retry behaviour and confirms the tool p95
+# alert (200ms threshold) actually fires under upstream slowness.
+#
+#   kubectl apply -f chaos/network-latency.yaml
+#   kubectl delete networkchaos mcp-openproject-latency -n openproject-mcp
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: mcp-openproject-latency
+  namespace: openproject-mcp
+spec:
+  action: delay
+  mode: all
+  duration: 5m
+  selector:
+    namespaces:
+      - openproject-mcp
+    labelSelectors:
+      app.kubernetes.io/name: openproject-mcp
+  direction: to
+  externalTargets:
+    - openproject.t3ja.com
+  delay:
+    latency: "200ms"
+    jitter: "50ms"
+    correlation: "25"
