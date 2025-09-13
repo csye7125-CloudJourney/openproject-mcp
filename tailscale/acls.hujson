@@ -1,0 +1,65 @@
+// Tailscale ACL policy. Push via admin console or the API
+// (`acls-push` make target). HuJSON keeps inline comments.
+//
+// Tag map:
+//   tag:dev-laptop   = my workstation, originates traffic.
+//   tag:mcp-server   = in-cluster mcp-server pod (Service has
+//                      `tailscale.com/expose`). Only :443 (SSE) is open.
+//   tag:cloud-vm     = bastion + standalone VMs (e.g. Jenkins controller
+//                      in the management account). SSH from laptop only.
+//   tag:k8s-operator = tailscale operator itself, talks to the k8s api.
+
+{
+  "tagOwners": {
+    "tag:dev-laptop":   ["autogroup:admin"],
+    "tag:mcp-server":   ["autogroup:admin"],
+    "tag:cloud-vm":     ["autogroup:admin"],
+    "tag:k8s-operator": ["autogroup:admin"],
+  },
+
+  "acls": [
+    // default deny; explicit allows below.
+    {
+      "action": "accept",
+      "src":    ["tag:dev-laptop"],
+      "dst":    ["tag:mcp-server:443"],
+    },
+    {
+      "action": "accept",
+      "src":    ["tag:dev-laptop"],
+      "dst":    ["tag:cloud-vm:22"],
+    },
+    {
+      "action": "accept",
+      "src":    ["tag:dev-laptop"],
+      // K8s api via the operator's proxy mode. 443 is the apiserver
+      // proxy port.
+      "dst":    ["tag:k8s-operator:443"],
+    },
+    // Cluster-internal: operator can reach mcp-server for health probes.
+    {
+      "action": "accept",
+      "src":    ["tag:k8s-operator"],
+      "dst":    ["tag:mcp-server:*"],
+    },
+  ],
+
+  "ssh": [
+    // SSH to cloud-vm hosts is restricted to dev-laptop, nonroot user.
+    {
+      "action": "accept",
+      "src":    ["tag:dev-laptop"],
+      "dst":    ["tag:cloud-vm"],
+      "users":  ["autogroup:nonroot"],
+    },
+  ],
+
+  "nodeAttrs": [
+    // turn off funnel on non-router nodes; guards against accidental
+    // subnet advertisement leaks.
+    {
+      "target": ["tag:dev-laptop", "tag:mcp-server"],
+      "attr":   ["funnel"],
+    },
+  ],
+}
