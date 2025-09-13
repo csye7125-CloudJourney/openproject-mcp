@@ -1,0 +1,73 @@
+---
+# Nightly chaos run. Snapshots cluster state, applies pod-kill, sleeps
+# 6 minutes (5m chaos + 1m recovery buffer), snapshots again, diffs.
+# Reports land in s3://openproject-mcp-chaos-reports/ at 03:00 UTC.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chaos-nightly
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: chaos-runner
+          restartPolicy: Never
+          containers:
+            - name: chaos-runner
+              image: bitnami/kubectl:1.30.4
+              command:
+                - sh
+                - -ec
+                - |
+                  set -u
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  REPORT_DIR=/reports/$TS
+                  mkdir -p $REPORT_DIR
+
+                  echo ">>> pre-chaos snapshot"
+                  kubectl -n openproject-mcp get pods -o wide > $REPORT_DIR/pre-pods.txt
+                  kubectl -n openproject-mcp top pods --no-headers > $REPORT_DIR/pre-top.txt || true
+                  curl -sf http://prometheus.observability.svc:9090/api/v1/query \
+                    --data-urlencode 'query=histogram_quantile(0.95, sum(rate(openproject_mcp_tool_latency_seconds_bucket[5m])) by (le))' \
+                    > $REPORT_DIR/pre-p95.json
+
+                  echo ">>> applying pod-kill"
+                  kubectl apply -f /scenarios/pod-kill.yaml
+
+                  echo ">>> sleeping 6m for scenario to complete"
+                  sleep 360
+
+                  echo ">>> post-chaos snapshot"
+                  kubectl -n openproject-mcp get pods -o wide > $REPORT_DIR/post-pods.txt
+                  kubectl -n openproject-mcp top pods --no-headers > $REPORT_DIR/post-top.txt || true
+                  curl -sf http://prometheus.observability.svc:9090/api/v1/query \
+                    --data-urlencode 'query=histogram_quantile(0.95, sum(rate(openproject_mcp_tool_latency_seconds_bucket[5m])) by (le))' \
+                    > $REPORT_DIR/post-p95.json
+
+                  echo ">>> cleanup"
+                  kubectl delete -f /scenarios/pod-kill.yaml --ignore-not-found
+
+                  echo ">>> upload"
+                  aws s3 cp $REPORT_DIR s3://openproject-mcp-chaos-reports/$TS/ \
+                    --recursive --only-show-errors
+
+                  echo ">>> done $TS"
+              volumeMounts:
+                - name: scenarios
+                  mountPath: /scenarios
+                  readOnly: true
+                - name: reports
+                  mountPath: /reports
+          volumes:
+            - name: scenarios
+              configMap:
+                name: chaos-scenarios
+            - name: reports
+              emptyDir: {}
