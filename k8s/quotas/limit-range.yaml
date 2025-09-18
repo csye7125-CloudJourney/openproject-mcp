@@ -1,0 +1,33 @@
+---
+# Default + max per-container bounds. Pods without explicit requests get
+# `default`; anything past `max` is rejected at admission. Keeps a
+# single greedy pod from chewing through the namespace ResourceQuota.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: openproject-mcp-defaults
+  namespace: openproject-mcp
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: 6Gi
+    - type: PersistentVolumeClaim
+      max:
+        storage: 20Gi
+      min:
+        storage: 1Gi

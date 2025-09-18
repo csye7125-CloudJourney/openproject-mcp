@@ -1,0 +1,24 @@
+---
+# Hard quota on the openproject-mcp namespace.
+# Sized to leave headroom for chaos runs and the HPA ceiling (max 10 pods)
+# without letting one bad rollout starve the cluster.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+spec:
+  hard:
+    # CPU + memory (requests + limits both bounded)
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    # object counts
+    pods: "40"
+    services: "10"
+    services.loadbalancers: "1"
+    persistentvolumeclaims: "5"
+    requests.storage: 50Gi
+    secrets: "20"
+    configmaps: "20"
