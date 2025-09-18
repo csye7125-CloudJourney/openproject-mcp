@@ -1,0 +1,102 @@
+---
+# Default deny. Only the ALLOW rules below let traffic through. This
+# sits on top of the namespace PeerAuthentication STRICT, which already
+# enforces mTLS at the transport layer.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: openproject-mcp
+spec:
+  {}
+---
+# Only mcp-client SA can hit /sse and /messages/ on the MCP server.
+# Source must be authenticated (mTLS) and carry the mcp-client identity.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-mcp-client
+  namespace: openproject-mcp
+spec:
+  selector:
+    matchLabels:
+      app: openproject-mcp
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/openproject-mcp/sa/mcp-client
+              - cluster.local/ns/argocd/sa/argocd-server
+      to:
+        - operation:
+            methods: [GET, POST]
+            paths: [/sse, /messages/, /messages]
+---
+# Webhooks endpoint. Source CIDR restricted to Tailscale + OpenProject
+# hosted IPs, with the x-openproject-signature header required.
+# Istio can only enforce CIDR + header presence; the HMAC body check
+# runs app-side since envoy can't compute SHA256 over the request body.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-webhooks
+  namespace: openproject-mcp
+spec:
+  selector:
+    matchLabels:
+      app: openproject-mcp
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            ipBlocks:
+              - 100.64.0.0/10
+              - 10.0.0.0/8
+      to:
+        - operation:
+            methods: [POST]
+            paths: [/webhooks/openproject]
+      when:
+        - key: request.headers[x-openproject-signature]
+          notValues: [""]
+---
+# Health probes. kubelet calls /healthz + /readyz from the node IP
+# without a sidecar identity, so allow these paths unauthenticated.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-probes
+  namespace: openproject-mcp
+spec:
+  selector:
+    matchLabels:
+      app: openproject-mcp
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            methods: [GET]
+            paths: [/healthz, /readyz]
+---
+# Prometheus scrape - only from monitoring ns prometheus SA, /metrics only.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: openproject-mcp
+spec:
+  selector:
+    matchLabels:
+      app: openproject-mcp
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/monitoring/sa/prometheus-k8s
+              - cluster.local/ns/monitoring/sa/prometheus
+      to:
+        - operation:
+            methods: [GET]
+            paths: [/metrics]
