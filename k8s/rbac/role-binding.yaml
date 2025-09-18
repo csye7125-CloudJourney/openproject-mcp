@@ -1,0 +1,33 @@
+---
+# Bind the namespaced Role to the mcp-server SA.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-server
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+subjects:
+  - kind: ServiceAccount
+    name: mcp-server
+    namespace: openproject-mcp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-server
+---
+# Bind the ClusterRole (read-only) to the mcp-server SA.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-server-read
+  labels:
+    app: openproject-mcp
+subjects:
+  - kind: ServiceAccount
+    name: mcp-server
+    namespace: openproject-mcp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mcp-server-read
