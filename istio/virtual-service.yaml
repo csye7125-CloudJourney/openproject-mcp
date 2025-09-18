@@ -1,0 +1,53 @@
+---
+# VirtualService for openproject-mcp. Header x-version: v2 pins a
+# request to the v2 subset (opt-in canary). Otherwise the default
+# weighted split sends 90% to v1 and 10% to v2. SSE routes get an
+# unbounded timeout so long-poll streams don't die at the 15s default.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+spec:
+  hosts:
+    - openproject-mcp.openproject-mcp.svc.cluster.local
+    - mcp.t3ja.com
+  gateways:
+    - openproject-mcp
+    - mesh
+  http:
+    - name: sse-stream
+      match:
+        - uri:
+            prefix: /sse
+      route:
+        - destination:
+            host: openproject-mcp.openproject-mcp.svc.cluster.local
+            subset: v1
+          weight: 100
+      timeout: 0s
+    - name: header-pinned-v2
+      match:
+        - headers:
+            x-version:
+              exact: v2
+      route:
+        - destination:
+            host: openproject-mcp.openproject-mcp.svc.cluster.local
+            subset: v2
+          weight: 100
+    - name: weighted-default
+      route:
+        - destination:
+            host: openproject-mcp.openproject-mcp.svc.cluster.local
+            subset: v1
+          weight: 90
+        - destination:
+            host: openproject-mcp.openproject-mcp.svc.cluster.local
+            subset: v2
+          weight: 10
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure
