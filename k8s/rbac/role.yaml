@@ -1,0 +1,28 @@
+---
+# Namespaced Role for mcp-server: reads its own configmaps/secrets,
+# emits events, and acquires the cache-writer lease. Cluster-wide verbs
+# live in cluster-role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-server
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    component: rbac
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    resourceNames: [openproject-mcp-config, openproject-mcp-secrets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  # leader election for replicas (HA replicas, single cache writer)
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [openproject-mcp-leader]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]

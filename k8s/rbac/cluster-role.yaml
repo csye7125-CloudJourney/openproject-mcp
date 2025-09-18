@@ -1,0 +1,18 @@
+---
+# ClusterRole for read-only access mcp-server tools may need: listing
+# namespaces (list_projects scoped per-ns) and reading nodes (capacity
+# reporting). Keep this small; widen explicitly when a new tool needs it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-server-read
+  labels:
+    app: openproject-mcp
+    component: rbac
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
