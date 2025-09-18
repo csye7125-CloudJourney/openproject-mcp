@@ -1,0 +1,52 @@
+---
+# Allow ingress from istio-system. External traffic enters via
+# istio-ingressgateway and istiod itself lives there (webhook callbacks).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app: openproject-mcp
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 15090  # envoy admin (metrics)
+---
+# Allow egress to istio-system. Sidecars need istiod for config push
+# (xDS) plus the jaeger collector path.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-istio
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 15012  # istiod xDS
+        - protocol: TCP
+          port: 15014  # istiod monitoring
+        - protocol: TCP
+          port: 443    # webhook
