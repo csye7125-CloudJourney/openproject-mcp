@@ -1,0 +1,34 @@
+---
+# Namespace-wide default deny on ingress + egress. DNS egress allowed below.
+# Anything not explicitly allowed by a follow-on policy gets dropped.
+#
+# EKS VPC CNI doesn't enforce NetworkPolicy by itself; Calico provides the
+# enforcement (see terraform/modules/eks/calico.tf, pending).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    type: baseline
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # explicit DNS egress. Without it pods lose cluster DNS and istio
+  # sidecars can't fetch ECDS from istiod, so nothing flows.
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
