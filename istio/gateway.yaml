@@ -1,0 +1,36 @@
+---
+# Gateway for MCP traffic. Fronted by the Tailscale operator.
+# It exposes istio-ingressgateway through a tailnet-only Service of
+# type LoadBalancer, so traffic flows tailnet DNS -> ingress -> mesh.
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - mcp.t3ja.com
+        - mcp-staging.t3ja.com
+        - mcp-dev.t3ja.com
+      tls:
+        mode: SIMPLE
+        credentialName: mcp-t3ja-com-tls
+    # HTTP -> HTTPS redirect. cert-manager runs DNS-01 via Route53,
+    # so the HTTP-01 path doesn't hit this server.
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - mcp.t3ja.com
+        - mcp-staging.t3ja.com
+        - mcp-dev.t3ja.com
+      tls:
+        httpsRedirect: true
