@@ -1,0 +1,37 @@
+---
+# Telemetry config for the openproject-mcp namespace. Turns on JSON
+# access logs to stdout (fluent-bit ships them to ES) and adds
+# request/response size histograms that Istio leaves off by default.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+spec:
+  accessLogging:
+    - providers:
+        - name: envoy
+      filter:
+        # don't spam logs for healthz/readyz probe traffic
+        expression: 'request.path != "/healthz" && request.path != "/readyz"'
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_DURATION
+          tagOverrides:
+            request_protocol:
+              value: request.protocol | "unknown"
+            mcp_tool:
+              value: request.headers["x-mcp-tool"] | "none"
+        - match:
+            metric: REQUEST_SIZE
+          disabled: false
+        - match:
+            metric: RESPONSE_SIZE
+          disabled: false
+  tracing:
+    - providers:
+        - name: jaeger
+      randomSamplingPercentage: 10.0
