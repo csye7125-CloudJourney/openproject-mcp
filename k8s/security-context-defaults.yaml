@@ -1,0 +1,61 @@
+---
+# Reusable security context snippet for openproject-mcp workloads.
+# Helm templates pull these in via include "openproject-mcp.podSecurityContext".
+# Kept here as a copy-paste source for non-helm consumers.
+#
+# Matches restricted PodSecurityStandard (non-root, readOnlyRootFilesystem,
+# all caps dropped, seccomp RuntimeDefault).
+#
+# Not actually applied; the manifest stays a valid Pod so kubectl
+# --dry-run=client doesn't choke on it in CI.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-template
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    role: template-only
+  annotations:
+    notes: |
+      TEMPLATE only, do not apply. Copy the securityContext blocks into your
+      workload manifests. metadata.name + the placeholder image just keep
+      the manifest as valid yaml.
+spec:
+  serviceAccountName: mcp-server
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+    supplementalGroups: []
+  containers:
+    - name: app
+      image: gsst3ja/openproject-mcp:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        # writable mounts because rootfs is read-only
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /var/cache/mcp
+  volumes:
+    - name: tmp
+      emptyDir:
+        sizeLimit: 256Mi
+    - name: cache
+      emptyDir:
+        sizeLimit: 512Mi
