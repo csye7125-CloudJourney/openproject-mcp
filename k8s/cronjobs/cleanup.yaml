@@ -1,0 +1,71 @@
+---
+# Nightly cleanup CronJob. Prunes stale recent-events cache entries
+# (older than 7d) and load-test artefacts on the shared volume.
+# Placeholder for now, real impl lands once the cache write path is final.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openproject-mcp-cleanup
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    component: cleanup
+spec:
+  schedule: "17 3 * * *"  # 03:17 UTC, off-peak with a randomized minute
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: openproject-mcp
+            component: cleanup
+        spec:
+          serviceAccountName: mcp-server
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cleanup
+              image: gsst3ja/openproject-mcp:latest
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, -c]
+              args:
+                - |
+                  set -eu
+                  echo "[$(date -u +%FT%TZ)] cleanup start"
+                  # placeholder. real script will POST to mcp-server
+                  # /admin/cleanup once it exists, delete load/ files
+                  # older than 30d, and log a summary for the log shipper.
+                  echo "noop placeholder, real cleanup pending cache write impl"
+                  echo "[$(date -u +%FT%TZ)] cleanup done"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
