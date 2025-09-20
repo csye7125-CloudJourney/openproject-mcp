@@ -1,0 +1,124 @@
+# Default values for openproject-mcp.
+# Override per environment via values-{dev,staging,prod}.yaml.
+
+environment: dev
+
+# Chart-managed namespace. ArgoCD-driven installs flip this to true so the
+# chart owns the ns; helm install --create-namespace handles the manual path.
+namespace:
+  create: false
+
+# Adds the istio-injection=enabled label to the namespace when namespace.create
+# is true. Only takes effect alongside that toggle.
+istio:
+  injection: true
+
+replicaCount: 2
+
+image:
+  repository: gsst3ja/openproject-mcp
+  pullPolicy: IfNotPresent
+  # Override per env in CI - falls back to chart appVersion otherwise.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Docker Hub pull secret. Rendered via ESO from an AWS Secrets Manager entry
+# with two string keys: `username` and `token`. The chart wires the resulting
+# kube Secret onto the ServiceAccount so the deployment picks it up.
+imagePullSecret:
+  enabled: true
+  secretName: dockerhub-pull
+  awsSecretId: openproject-mcp/dev/dockerhub-pull
+
+serviceAccount:
+  create: true
+  name: ""
+  # IRSA role - one of the IAM module outputs (irsa_role_arns["mcp_server"]).
+  roleArn: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  # tailscale operator picks this up and joins the service to the tailnet
+  tailscale:
+    enabled: true
+
+openproject:
+  baseUrl: "https://openproject.t3ja.com"
+
+# non-secret runtime env. secrets live in templates/externalsecret.yaml.
+config:
+  mcpTransport: "http-sse"
+  logLevel: "INFO"
+  kafkaBootstrap: ""
+  kafkaSecurityProtocol: "PLAINTEXT"
+  kafkaSaslMechanism: ""
+
+externalSecrets:
+  enabled: true
+  # ClusterSecretStore created out-of-band; one per cluster (refs the IRSA role
+  # bound to external-secrets SA in kube-system).
+  secretStoreName: aws-secrets-manager
+  secretStoreKind: ClusterSecretStore
+  refreshInterval: 1h
+  # AWS Secrets Manager secret ids (path-style ok).
+  openprojectApiKeySecretId: openproject-mcp/dev/openproject-api-key
+  webhookHmacSecretId: openproject-mcp/dev/webhook-hmac-secret
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 50
+  targetMemoryUtilizationPercentage: 60
+
+# Deployment rollout strategy. maxUnavailable=0 keeps the replica count
+# at or above desired during a roll for the sub-200ms p95 SLO. maxSurge=1
+# is the minimum k8s accepts when maxUnavailable is 0.
+rollingUpdate:
+  maxSurge: 1
+  maxUnavailable: 0
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Prometheus Operator CRDs. Disable here if the cluster runs vanilla prom only.
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  additionalLabels:
+    release: kube-prometheus-stack
+
+prometheusRule:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
+
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+
+# Break-glass fallback. Disabled by default - prefer ExternalSecret path.
+# Re-encrypt via kubeseal whenever values change (see template comment).
+sealedSecret:
+  enabled: false
+  encryptedData:
+    openprojectApiKey: "PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT"
+    webhookHmacSecret: "PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
