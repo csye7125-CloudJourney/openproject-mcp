@@ -1,0 +1,80 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: openproject-mcp
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: |
+    Scope for openproject-mcp Applications. Restricts the git sources,
+    destinations, and resource kinds these apps may touch.
+  sourceRepos:
+    - git@github.com:gssteja/openproject-mcp-manifests.git
+    - https://t3ja.github.io/openproject-mcp-charts
+  destinations:
+    - namespace: openproject-mcp
+      server: https://kubernetes.default.svc
+    - namespace: openproject-mcp-*
+      server: https://kubernetes.default.svc
+  # cluster-scoped resources we actually need (namespaces created via syncOption)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  # everything else is namespace-scoped; allow common controllers + istio + monitoring
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: autoscaling
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: networking.k8s.io
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: "*"
+    - group: bitnami.com
+      kind: SealedSecret
+    - group: external-secrets.io
+      kind: "*"
+    - group: monitoring.coreos.com
+      kind: "*"
+    - group: security.istio.io
+      kind: "*"
+    - group: networking.istio.io
+      kind: "*"
+    - group: telemetry.istio.io
+      kind: "*"
+    - group: apps.csye7125.cloud
+      kind: OpenProjectMCP
+  orphanedResources:
+    warn: true
+  # who can sync prod
+  roles:
+    - name: read-only
+      description: read all apps in project (devs)
+      policies:
+        - p, proj:openproject-mcp:read-only, applications, get, openproject-mcp/*, allow
+      groups:
+        - openproject-mcp-devs
+    - name: deploy-nonprod
+      description: sync dev + staging
+      policies:
+        - p, proj:openproject-mcp:deploy-nonprod, applications, sync, openproject-mcp/openproject-mcp-dev, allow
+        - p, proj:openproject-mcp:deploy-nonprod, applications, sync, openproject-mcp/openproject-mcp-staging, allow
+      groups:
+        - openproject-mcp-devs
+    - name: deploy-prod
+      description: sync prod (gated)
+      policies:
+        - p, proj:openproject-mcp:deploy-prod, applications, sync, openproject-mcp/openproject-mcp-prod, allow
+      groups:
+        - openproject-mcp-sre
