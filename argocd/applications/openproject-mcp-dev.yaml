@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openproject-mcp-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: openproject-mcp
+    environment: dev
+  annotations:
+    # argocd-image-updater wiring. dev tracks semver including -rc tags.
+    argocd-image-updater.argoproj.io/image-list: mcp=gsst3ja/openproject-mcp
+    argocd-image-updater.argoproj.io/mcp.update-strategy: semver
+    argocd-image-updater.argoproj.io/mcp.allow-tags: regexp:^v?[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/write-back-target: kustomization:manifests/openproject-mcp/overlays/dev
+    argocd-image-updater.argoproj.io/git-branch: main
+spec:
+  project: openproject-mcp
+  source:
+    repoURL: git@github.com:gssteja/openproject-mcp-manifests.git
+    targetRevision: main
+    path: manifests/openproject-mcp/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openproject-mcp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 10
