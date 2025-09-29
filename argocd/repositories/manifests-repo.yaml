@@ -1,0 +1,55 @@
+---
+# SealedSecret with the SSH deploy key argocd-server + image-updater
+# use against the manifests repo. Regenerate via:
+#
+#   ssh-keygen -t ed25519 -f /tmp/argocd-manifests -C "argocd@openproject-mcp" -N ""
+#   # upload /tmp/argocd-manifests.pub as a deploy key on the manifests repo
+#   # (Settings > Deploy keys, allow write access)
+#   kubectl -n argocd create secret generic openproject-mcp-manifests-repo \
+#     --from-file=sshPrivateKey=/tmp/argocd-manifests \
+#     --from-literal=url=git@github.com:gssteja/openproject-mcp-manifests.git \
+#     --from-literal=type=git \
+#     --dry-run=client -o yaml \
+#     | kubeseal --controller-namespace kube-system --format yaml \
+#     > argocd/repositories/manifests-repo.yaml
+#
+# Placeholder ciphertext for now; replaced once the sealed-secrets
+# controller cert is available.
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: openproject-mcp-manifests-repo
+  namespace: argocd
+spec:
+  encryptedData:
+    sshPrivateKey: PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT
+    url: PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT
+    type: PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT
+  template:
+    metadata:
+      name: openproject-mcp-manifests-repo
+      namespace: argocd
+      labels:
+        # this label is how argocd discovers repo creds
+        argocd.argoproj.io/secret-type: repository
+    type: Opaque
+---
+# Same key, separate Secret for image-updater (it does its own credential
+# discovery). image-updater needs WRITE for tag pushes; argocd-server is
+# READ-only. GitHub deploy keys are read-or-write per repo, so one key
+# covers both subjects.
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: git-creds
+  namespace: argocd
+spec:
+  encryptedData:
+    sshPrivateKey: PLACEHOLDER_REPLACE_WITH_KUBESEAL_OUTPUT
+  template:
+    metadata:
+      name: git-creds
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: argocd-image-updater
+    type: Opaque
