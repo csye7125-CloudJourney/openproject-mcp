@@ -1,0 +1,64 @@
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "openproject-mcp.fullname" . }}
+  labels:
+    {{- include "openproject-mcp.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: openproject-mcp.rules
+      interval: 30s
+      rules:
+        - alert: OpenProjectMCPHighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le, tool_name) (
+                rate(mcp_tool_latency_seconds_bucket{job=~".*openproject-mcp.*"}[5m])
+              )
+            ) > 0.200
+          for: 5m
+          labels:
+            severity: warning
+            service: openproject-mcp
+          annotations:
+            summary: "p95 latency > 200ms for {{`{{ $labels.tool_name }}`}}"
+            description: "{{`{{ $labels.tool_name }}`}} p95 above 200ms target for 5m. Current value {{`{{ $value }}`}}s."
+
+        - alert: OpenProjectMCPErrorRateHigh
+          expr: |
+            sum by (tool_name) (rate(mcp_tool_calls_total{status="error"}[5m]))
+              /
+            sum by (tool_name) (rate(mcp_tool_calls_total[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+            service: openproject-mcp
+          annotations:
+            summary: "error rate > 5% for {{`{{ $labels.tool_name }}`}}"
+
+        - alert: OpenProjectMCPPodMemoryHigh
+          expr: |
+            container_memory_working_set_bytes{pod=~".*openproject-mcp.*", container="openproject-mcp"}
+              / on (pod, container)
+            kube_pod_container_resource_limits{resource="memory"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            service: openproject-mcp
+          annotations:
+            summary: "pod memory > 90% of limit"
+
+        - alert: OpenProjectMCPNoReadyPods
+          expr: |
+            kube_deployment_status_replicas_available{deployment=~".*openproject-mcp.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: openproject-mcp
+          annotations:
+            summary: "no ready pods for openproject-mcp"
+{{- end }}
