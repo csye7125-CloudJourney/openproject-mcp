@@ -1,0 +1,64 @@
+{{- if .Values.networkPolicy.enabled }}
+# default-deny ingress for the app's own pods. Specific allow rules follow.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openproject-mcp.fullname" . }}-default-deny
+  labels:
+    {{- include "openproject-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openproject-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress: []
+---
+# allow from istio-system gateways + sidecars (mTLS handshake done at L7 by istio,
+# but the L3/L4 path still needs to be opened)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openproject-mcp.fullname" . }}-allow-istio
+  labels:
+    {{- include "openproject-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openproject-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+        - namespaceSelector:
+            matchLabels:
+              istio-injection: enabled
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# allow prometheus scrape from monitoring namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openproject-mcp.fullname" . }}-allow-prometheus
+  labels:
+    {{- include "openproject-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openproject-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.prometheusNamespace | default "monitoring" }}
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
