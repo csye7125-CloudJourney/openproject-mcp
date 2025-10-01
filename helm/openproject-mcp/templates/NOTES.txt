@@ -1,0 +1,30 @@
+openproject-mcp ({{ .Values.environment }}) installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Status:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "openproject-mcp.fullname" . }}
+
+Logs:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
+
+Reach the service (in-cluster):
+  http://{{ include "openproject-mcp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/healthz
+
+{{- if .Values.service.tailscale.enabled }}
+
+Reach over Tailscale (after tailscale-operator joins the svc to the tailnet):
+  http://mcp-{{ .Values.environment }}.<tailnet-name>.ts.net:{{ .Values.service.port }}/sse
+{{- end }}
+
+Port-forward fallback:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "openproject-mcp.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+{{- if not .Values.serviceAccount.roleArn }}
+
+WARNING: serviceAccount.roleArn is empty. IRSA not wired, pod will use node
+         role for AWS calls (Secrets Manager, MSK SASL/IAM, etc.). Set from
+         terraform: module.iam.irsa_role_arns["mcp_server"]
+{{- end }}
+
+Metrics:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "openproject-mcp.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl localhost:{{ .Values.service.port }}/metrics
