@@ -1,0 +1,51 @@
+environment: prod
+
+replicaCount: 3
+
+image:
+  tag: "prod"
+
+openproject:
+  baseUrl: "https://openproject.t3ja.com"
+
+config:
+  logLevel: "INFO"
+  kafkaBootstrap: ""
+  kafkaSecurityProtocol: "SASL_SSL"
+  kafkaSaslMechanism: "AWS_MSK_IAM"
+
+serviceAccount:
+  roleArn: ""
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 50
+  targetMemoryUtilizationPercentage: 60
+
+podDisruptionBudget:
+  enabled: true
+  # 3 replicas, allow at most 1 unavailable -> survives node drain + voluntary disruption
+  minAvailable: 2
+
+externalSecrets:
+  openprojectApiKeySecretId: openproject-mcp/prod/openproject-api-key
+  webhookHmacSecretId: openproject-mcp/prod/webhook-hmac-secret
+
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: true
+
+networkPolicy:
+  enabled: true

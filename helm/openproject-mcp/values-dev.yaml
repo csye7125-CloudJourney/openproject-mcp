@@ -1,0 +1,42 @@
+environment: dev
+
+replicaCount: 1
+
+image:
+  tag: "dev"
+
+openproject:
+  baseUrl: "https://openproject-dev.t3ja.com"
+
+config:
+  logLevel: "DEBUG"
+  kafkaBootstrap: ""
+  kafkaSecurityProtocol: "PLAINTEXT"
+
+serviceAccount:
+  # filled in by `terraform output -raw irsa_role_arn_mcp_server` from envs/dev
+  roleArn: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+
+podDisruptionBudget:
+  # single-replica dev would block node drains - disable
+  enabled: false
+
+externalSecrets:
+  openprojectApiKeySecretId: openproject-mcp/dev/openproject-api-key
+  webhookHmacSecretId: openproject-mcp/dev/webhook-hmac-secret
+
+imagePullSecret:
+  awsSecretId: openproject-mcp/dev/dockerhub-pull

@@ -1,0 +1,40 @@
+environment: staging
+
+replicaCount: 2
+
+image:
+  tag: "staging"
+
+openproject:
+  baseUrl: "https://openproject-staging.t3ja.com"
+
+config:
+  logLevel: "INFO"
+  # MSK bootstrap brokers - from terraform output (envs/staging) module.msk.bootstrap_brokers_sasl_iam
+  kafkaBootstrap: ""
+  kafkaSecurityProtocol: "SASL_SSL"
+  kafkaSaslMechanism: "AWS_MSK_IAM"
+
+serviceAccount:
+  roleArn: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+externalSecrets:
+  openprojectApiKeySecretId: openproject-mcp/staging/openproject-api-key
+  webhookHmacSecretId: openproject-mcp/staging/webhook-hmac-secret
