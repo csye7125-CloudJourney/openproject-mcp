@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openproject-mcp
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: openproject-mcp
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi

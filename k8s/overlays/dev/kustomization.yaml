@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: openproject-mcp-dev
+namePrefix: dev-
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: dev
+
+resources:
+  - ../../base
+
+patches:
+  - path: deployment-patch.yaml
+    target:
+      kind: Deployment
+      name: openproject-mcp
+  - path: configmap-patch.yaml
+    target:
+      kind: ConfigMap
+      name: openproject-mcp-env
+
+images:
+  - name: gsst3ja/openproject-mcp
+    newTag: dev

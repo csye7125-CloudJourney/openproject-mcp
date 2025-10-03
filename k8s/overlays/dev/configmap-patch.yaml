@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openproject-mcp-env
+data:
+  ENVIRONMENT: "dev"
+  LOG_LEVEL: "DEBUG"
+  OPENPROJECT_BASE_URL: "https://openproject-dev.t3ja.com"

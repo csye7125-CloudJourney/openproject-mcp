@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openproject-mcp-env
+data:
+  ENVIRONMENT: "staging"
+  LOG_LEVEL: "INFO"
+  OPENPROJECT_BASE_URL: "https://openproject-staging.t3ja.com"
+  KAFKA_SECURITY_PROTOCOL: "SASL_SSL"
+  KAFKA_SASL_MECHANISM: "AWS_MSK_IAM"
