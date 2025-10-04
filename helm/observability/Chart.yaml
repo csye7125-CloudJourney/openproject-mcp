@@ -1,0 +1,34 @@
+apiVersion: v2
+name: observability
+description: Wrapper chart pulling prometheus + EFK + OTel + Jaeger into one release
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# helm dependency update pulls these into charts/. Versions pinned.
+dependencies:
+  - name: kube-prometheus-stack
+    version: 62.6.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-prometheus-stack.enabled
+  - name: elasticsearch
+    version: 8.5.1
+    repository: https://helm.elastic.co
+    condition: elasticsearch.enabled
+  - name: kibana
+    version: 8.5.1
+    repository: https://helm.elastic.co
+    condition: kibana.enabled
+  - name: fluent-bit
+    version: 0.47.10
+    repository: https://fluent.github.io/helm-charts
+    condition: fluent-bit.enabled
+  - name: opentelemetry-collector
+    version: 0.97.1
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    alias: otel-collector
+    condition: opentelemetry-collector.enabled
+  - name: jaeger
+    version: 3.3.1
+    repository: https://jaegertracing.github.io/helm-charts
+    condition: jaeger.enabled
