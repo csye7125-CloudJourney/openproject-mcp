@@ -1,0 +1,21 @@
+{{- /*
+ES subchart owns its own statefulset PVCs. This file just emits an extra
+PVC for snapshot restores when extraSnapshotPvc.enabled is set.
+*/ -}}
+{{- if and .Values.elasticsearch.enabled .Values.elasticsearch.extraSnapshotPvc.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: es-snapshot-restore
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/component: elasticsearch-snapshots
+    app.kubernetes.io/part-of: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.elasticsearch.extraSnapshotPvc.storageClassName | default "gp3" }}
+  resources:
+    requests:
+      storage: {{ .Values.elasticsearch.extraSnapshotPvc.size | default "30Gi" }}
+{{- end }}
