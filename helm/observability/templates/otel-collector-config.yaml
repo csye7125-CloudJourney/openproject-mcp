@@ -1,0 +1,74 @@
+{{- /*
+otel collector pipeline config. Kept in its own ConfigMap rather than
+buried in subchart values so the pipeline reviews in isolation.
+*/ -}}
+{{- if (index .Values "opentelemetry-collector" "enabled") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-pipeline
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/component: otel-collector
+    app.kubernetes.io/part-of: observability
+data:
+  pipeline.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: mcp-self
+              scrape_interval: 30s
+              static_configs:
+                - targets: ["openproject-mcp.openproject-mcp.svc.cluster.local:8000"]
+    processors:
+      batch:
+        send_batch_size: 1024
+        timeout: 5s
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      k8sattributes:
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.pod.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.deployment.name
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger-collector.{{ .Values.namespace }}.svc.cluster.local:4317
+        tls:
+          insecure: true
+      prometheusremotewrite:
+        endpoint: http://prometheus-operated.{{ .Values.namespace }}.svc.cluster.local:9090/api/v1/write
+        tls:
+          insecure: true
+      debug:
+        verbosity: basic
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [otlp/jaeger]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [prometheusremotewrite]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug]
+      telemetry:
+        logs:
+          level: info
+{{- end }}
