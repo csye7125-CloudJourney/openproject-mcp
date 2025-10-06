@@ -1,0 +1,64 @@
+{{- /*
+Alertmanager routes + receivers. PagerDuty key + Slack webhook are
+placeholders; real values land via ExternalSecret. AlertmanagerConfig
+CRD ships with kube-prometheus-stack so this renders only when that
+subchart is on.
+*/ -}}
+{{- if (index .Values "kube-prometheus-stack" "enabled") }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: openproject-mcp-routes
+  namespace: {{ .Values.namespace }}
+  labels:
+    alertmanagerConfig: openproject-mcp
+    app.kubernetes.io/part-of: observability
+spec:
+  route:
+    groupBy: ["alertname", "severity", "namespace"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    receiver: ops-slack
+    routes:
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: pagerduty
+        continue: true
+      - matchers:
+          - name: severity
+            value: warning
+        receiver: ops-slack
+      - matchers:
+          - name: alertname
+            value: Watchdog
+        receiver: blackhole
+  receivers:
+    - name: blackhole
+    - name: pagerduty
+      pagerdutyConfigs:
+        - routingKey:
+            name: alertmanager-pagerduty
+            key: serviceKey
+          sendResolved: true
+          severity: '{{ "{{ .CommonLabels.severity }}" }}'
+          description: '{{ "{{ .CommonAnnotations.summary }}" }}'
+    - name: ops-slack
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack
+            key: webhookUrl
+          channel: "#ops-alerts"
+          sendResolved: true
+          title: '{{ "{{ .CommonLabels.alertname }} - {{ .CommonLabels.severity }}" }}'
+          text: '{{ "{{ .CommonAnnotations.summary }}\n{{ .CommonAnnotations.description }}" }}'
+  inhibitRules:
+    - sourceMatch:
+        - name: severity
+          value: critical
+      targetMatch:
+        - name: severity
+          value: warning
+      equal: ["alertname", "namespace"]
+{{- end }}
