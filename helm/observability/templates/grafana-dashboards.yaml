@@ -1,0 +1,275 @@
+{{- /*
+Dashboards as ConfigMaps with grafana_dashboard=1 so the kube-prometheus-stack
+grafana sidecar picks them up. One CM per dashboard so edits don't churn the
+others. Panels are hand-rolled, not imports from grafana.com.
+*/ -}}
+{{- if .Values.dashboards.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-cluster-overview
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability
+data:
+  cluster-overview.json: |
+    {
+      "title": "Cluster Overview",
+      "uid": "mcp-cluster-overview",
+      "schemaVersion": 39,
+      "tags": ["mcp", "cluster"],
+      "timezone": "browser",
+      "time": {"from": "now-6h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Node CPU usage",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "sum by (instance) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+              "legendFormat": "{{ "{{ instance }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Node memory usage",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes",
+              "legendFormat": "{{ "{{ instance }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Pods by phase",
+          "type": "stat",
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "sum by (phase) (kube_pod_status_phase)",
+              "legendFormat": "{{ "{{ phase }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Persistent volume usage",
+          "type": "timeseries",
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
+              "legendFormat": "{{ "{{ persistentvolumeclaim }}" }}"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-mcp-tool-latency
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability
+data:
+  mcp-tool-latency.json: |
+    {
+      "title": "MCP Tool Latency",
+      "uid": "mcp-tool-latency",
+      "schemaVersion": 39,
+      "tags": ["mcp", "latency"],
+      "timezone": "browser",
+      "time": {"from": "now-1h", "to": "now"},
+      "refresh": "15s",
+      "templating": {
+        "list": [
+          {
+            "name": "tool",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(mcp_tool_calls_total, tool)",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "P50 latency by tool",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (tool, le) (rate(mcp_tool_latency_seconds_bucket{tool=~\"$tool\"}[5m])))",
+              "legendFormat": "{{ "{{ tool }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "P95 latency by tool",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (tool, le) (rate(mcp_tool_latency_seconds_bucket{tool=~\"$tool\"}[5m])))",
+              "legendFormat": "{{ "{{ tool }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Tool call rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "sum by (tool) (rate(mcp_tool_calls_total{tool=~\"$tool\"}[5m]))",
+              "legendFormat": "{{ "{{ tool }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Error rate by tool",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {
+              "expr": "sum by (tool) (rate(mcp_tool_calls_total{tool=~\"$tool\",status=\"error\"}[5m])) / sum by (tool) (rate(mcp_tool_calls_total{tool=~\"$tool\"}[5m]))",
+              "legendFormat": "{{ "{{ tool }}" }}"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-kafka-lag
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability
+data:
+  kafka-lag.json: |
+    {
+      "title": "Kafka Consumer Lag",
+      "uid": "mcp-kafka-lag",
+      "schemaVersion": 39,
+      "tags": ["mcp", "kafka"],
+      "timezone": "browser",
+      "time": {"from": "now-3h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Consumer group lag by topic",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "sum by (group, topic) (kafka_consumergroup_lag)",
+              "legendFormat": "{{ "{{ group }} / {{ topic }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Topic message in rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset[5m]))",
+              "legendFormat": "{{ "{{ topic }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Broker under-replicated partitions",
+          "type": "stat",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {
+              "expr": "sum(kafka_server_replicamanager_underreplicatedpartitions)"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-istio-request-rate
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability
+data:
+  istio-request-rate.json: |
+    {
+      "title": "Istio Request Rate",
+      "uid": "mcp-istio-rate",
+      "schemaVersion": 39,
+      "tags": ["mcp", "istio"],
+      "timezone": "browser",
+      "time": {"from": "now-1h", "to": "now"},
+      "refresh": "15s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request rate by destination",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "sum by (destination_service_name) (rate(istio_requests_total[5m]))",
+              "legendFormat": "{{ "{{ destination_service_name }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "5xx rate by destination",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "sum by (destination_service_name) (rate(istio_requests_total{response_code=~\"5..\"}[5m]))",
+              "legendFormat": "{{ "{{ destination_service_name }}" }}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "P99 request duration",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (destination_service_name, le) (rate(istio_request_duration_milliseconds_bucket[5m])))",
+              "legendFormat": "{{ "{{ destination_service_name }}" }}"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}
