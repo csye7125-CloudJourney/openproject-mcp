@@ -1,0 +1,22 @@
+apiVersion: v2
+name: addons
+description: Wrapper chart for platform addons - ESO, sealed-secrets, external-dns
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# helm dependency update pulls these into charts/. Pinned to minor
+# (~> X.Y.0) so we get patches without API churn.
+dependencies:
+  - name: external-secrets
+    version: ~> 0.10.0
+    repository: https://charts.external-secrets.io
+    condition: external-secrets.enabled
+  - name: sealed-secrets
+    version: ~> 2.16.0
+    repository: https://bitnami-labs.github.io/sealed-secrets
+    condition: sealed-secrets.enabled
+  - name: external-dns
+    version: ~> 1.15.0
+    repository: https://kubernetes-sigs.github.io/external-dns
+    condition: external-dns.enabled

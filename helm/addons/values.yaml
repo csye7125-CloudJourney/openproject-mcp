@@ -1,0 +1,102 @@
+# Platform addons. Each block toggles a Chart.yaml dependency and the
+# templates that wire it in (ClusterSecretStore, IRSA service accounts, etc).
+
+# AWS region + hosted zone for ClusterSecretStore + external-dns.
+# overridden per env via values-{dev,prod}.yaml.
+region: us-east-1
+hostedZone: t3ja.com
+
+externalSecrets:
+  enabled: true
+  # IRSA role for the controller SA. Wire it from terraform output
+  # module.iam.irsa_role_arns["external_secrets"]. ClusterSecretStore
+  # template uses this to reach AWS Secrets Manager.
+  serviceAccount:
+    roleArn: ""
+
+# upstream chart values nested under the dep name
+external-secrets:
+  installCRDs: true
+  replicaCount: 2
+  serviceAccount:
+    create: true
+    name: external-secrets
+    # populated from .Values.externalSecrets.serviceAccount.roleArn in
+    # values-{dev,prod}.yaml until a proper IRSA template lands.
+    annotations: {}
+  webhook:
+    replicaCount: 2
+  certController:
+    replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+sealedSecrets:
+  enabled: true
+  # Controller name + ns drive the kubeseal CLI defaults. Keep these in
+  # sync with the openproject-mcp chart's sealedsecret-example.yaml comment
+  # block which hardcodes --controller-name=sealed-secrets --controller-namespace=sealed-secrets.
+  keyRotation:
+    enabled: true
+    # 90d rotation everywhere (matches KMS auto-rotate cadence).
+    # Cronjob lives in templates/.
+    schedule: "0 3 1 */3 *"
+
+# upstream chart values nested under the dep name
+sealed-secrets:
+  fullnameOverride: sealed-secrets
+  namespace: sealed-secrets
+  # Active key is renamed on rotation; controller picks up the new key
+  # without a restart. Old keys stay around forever so previously sealed
+  # payloads still decrypt. Rotate, don't delete.
+  keyrenewperiod: "2160h"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  metrics:
+    serviceMonitor:
+      enabled: true
+
+externalDns:
+  enabled: true
+  # IRSA role for the external-dns controller. Populate from terraform:
+  # module.iam.irsa_role_arns["external_dns"].
+  serviceAccount:
+    roleArn: ""
+
+# upstream chart values nested under the dep name
+external-dns:
+  provider:
+    name: aws
+  # one zone per cluster. per-env zone passed via values-{dev,prod}.yaml.
+  domainFilters:
+    - t3ja.com
+  policy: sync
+  registry: txt
+  txtOwnerId: openproject-mcp
+  sources:
+    - service
+    - ingress
+  # IAM role consumed by the upstream chart's SA template.
+  serviceAccount:
+    create: true
+    name: external-dns
+    annotations: {}
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  metrics:
+    enabled: true
