@@ -1,0 +1,171 @@
+# default values for the openproject wrapper chart.
+# everything under `openproject:` is forwarded to the upstream opf/openproject
+# subchart. top level keys are ours: terraform-injected things (rds endpoint,
+# SM paths, ingress host) plus our istio/seed templates.
+
+# top level toggle for the wrapper. flipped on when terraform sets
+# var.deploy_openproject=true.
+openproject:
+  enabled: true
+
+  image:
+    # pin to 14-slim - openproject 14 is the current LTS as of oct 2025.
+    # appVersion in Chart.yaml moves in lockstep.
+    tag: 14-slim
+    pullPolicy: IfNotPresent
+
+  # postgresql subchart off. we use the shared RDS instance from
+  # terraform/modules/rds. Upstream consumes `postgresql.connection`
+  # for the host/port and `postgresql.auth.existingSecret` for the
+  # password. The secret itself is rendered by
+  # templates/database-secret.yaml (ESO -> kube Secret).
+  postgresql:
+    bundled: false
+    connection:
+      host: ""   # set via --set rds.endpoint=<...> + helm template wires through
+      port: 5432
+    auth:
+      username: openproject
+      database: openproject
+      existingSecret: openproject-db
+      secretKeys:
+        userPasswordKey: password
+        adminPasswordKey: password
+
+  externalDatabase:
+    host: ""        # set via --set openproject.externalDatabase.host=<rds endpoint>
+    port: 5432
+    user: openproject
+    database: openproject
+    existingSecret: openproject-db
+    existingSecretPasswordKey: password
+    sslmode: require
+
+  # in-cluster memcached. single replica is plenty: openproject uses
+  # this for the rails fragment cache. swap to elasticache when traffic
+  # justifies the spend. bitnami memcached subchart ships with opf.
+  memcached:
+    bundled: true
+    enabled: true
+    architecture: standalone
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/memcached
+      # Bitnami's free public catalogue retired in 2025, images now live
+      # under bitnamilegacy. Keep this pinned until the platform moves
+      # to elasticache or rolls its own memcached image.
+      tag: 1.6.32
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  # persistent attachments. openproject stores WP file uploads on disk by
+  # default, the PVC keeps them across pod restarts. prod should swap to
+  # S3 via attachments_storage; the PVC is the simpler path for now.
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+
+  # istio + our own VirtualService template handle ingress;
+  # subchart ingress would fight us on host claims.
+  ingress:
+    enabled: false
+
+  # ClusterIP only. istio ingress gateway fronts this via the
+  # VirtualService template below.
+  service:
+    type: ClusterIP
+    port: 80
+
+  # SMTP placeholder. operator wires real values post-install via
+  # `kubectl -n openproject edit configmap openproject-rails-config`
+  # or by re-running helm with --set openproject.smtp.host=...
+  # TODO bump on next quarterly review once we settle on a provider.
+  smtp:
+    enabled: false
+    host: ""
+    port: 587
+    domain: ""
+    authentication: plain
+    enableStarttlsAuto: true
+    username: ""
+    # smtp password lives in the same external secret as the db creds
+    # if/when smtp.enabled flips on.
+    existingSecret: openproject-smtp
+    existingSecretPasswordKey: password
+
+# host the istio VirtualService will route. matches the route53 record
+# created in terraform/envs/*/main.tf when deploy_openproject=true.
+host: openproject.t3ja.com
+
+# rds-side admin creds the chart needs to bootstrap the OpenProject db
+# and user. The kube Secret is synced by ESO from AWS Secrets Manager;
+# the chart only references the names here. endpoint comes from
+# terraform output module.rds.endpoint, passed via
+# --set rds.endpoint=... at helm install time.
+rds:
+  endpoint: ""
+  port: 5432
+  database: openproject
+  username: openproject
+  # Admin user inside RDS (created by terraform/modules/rds). The
+  # bootstrap Job runs as this user before any OpenProject pods start.
+  adminUsername: openproject_admin
+  adminDatabase: openproject
+  # ESO will sync this secret from openproject-mcp-dev/rds/master.
+  masterSecretId: openproject-mcp-dev/rds/master
+
+# kube Secret the db-bootstrap Job pulls PGPASSWORD from. Synced from
+# rds.masterSecretId by the openproject-rds-master ExternalSecret. The
+# JSON shape of the SM entry (username/password) means the keys land
+# verbatim on the kube Secret.
+rdsMasterSecret:
+  name: openproject-rds-master
+  passwordKey: password
+
+# Pre-install/pre-upgrade Helm hook Job that creates the OpenProject
+# postgres role + database + grant before the opf/openproject seeder
+# Job runs. Off in prod where a DBA owns user/db creation out of band.
+dbBootstrap:
+  enabled: true
+  image: postgres:15
+
+# bench data load. flip enabled=true and re-run helm upgrade to
+# populate. defaults sized for ~250 work packages; bump
+# projects/workPackagesPerProject when k6 wants more rows under load.
+seed:
+  enabled: false
+  projects: 5
+  workPackagesPerProject: 50
+
+# istio wiring. virtualService points at the gateway from
+# istio/gateway.yaml (the same one the MCP server uses). The openproject
+# host gets stapled onto it via the gateway-additional-hosts patch.
+istio:
+  virtualService:
+    enabled: true
+    gateways:
+      - openproject-mcp/openproject-mcp
+    timeout: 60s
+  destinationRule:
+    enabled: true
+
+# aws secrets manager paths. external-secrets-operator (from
+# helm/addons/) creates the kube secret with these keys mapped in via
+# templates/database-secret.yaml. db password lives at one path, the
+# rails secret key base at another.
+externalSecrets:
+  enabled: true
+  secretStoreName: aws-secrets-manager
+  secretStoreKind: ClusterSecretStore
+  refreshInterval: 1h
+  dbPasswordSecretId: openproject/dev/db-password
+  secretKeyBaseSecretId: openproject/dev/secret-key-base
+  adminPasswordSecretId: openproject/dev/admin-password

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: openproject
+description: Wrapper chart around the upstream OpenProject community chart. Gated by terraform var.deploy_openproject.
+type: application
+version: 0.1.0
+appVersion: "14"
+
+# Upstream chart from opf/helm-charts (opf is the OpenProject org). Picked
+# this over the bitnami/openproject chart because opf surfaces Rails ENV
+# directly and exposes existingSecret + externalDatabase cleanly; the
+# bitnami one bundles postgresql + memcached subcharts which collide with
+# our external RDS + in-cluster memcached layout.
+#
+# helm dependency update pulls into charts/.
+dependencies:
+  - name: openproject
+    version: 8.0.0
+    repository: https://charts.openproject.org
+    condition: openproject.enabled
