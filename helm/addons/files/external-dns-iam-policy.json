@@ -1,0 +1,26 @@
+{
+  "_comment": "Reference policy for external-dns IRSA role. NOT applied by the chart - terraform/modules/iam/irsa_policies.tf already provisions this. Kept here so a) the chart self-documents what role arn it expects to receive via .Values.externalDns.serviceAccount.roleArn, and b) someone running this chart against a non-terraform cluster has the canonical statement list to copy.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ZoneChange",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ChangeResourceRecordSets"
+      ],
+      "Resource": [
+        "arn:aws:route53:::hostedzone/<hosted-zone-id>"
+      ]
+    },
+    {
+      "Sid": "ZoneList",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListHostedZones",
+        "route53:ListResourceRecordSets",
+        "route53:ListTagsForResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
