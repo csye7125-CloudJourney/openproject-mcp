@@ -1,0 +1,18 @@
+addons "{{ .Release.Name }}" installed.
+
+externalSecrets={{ .Values.externalSecrets.enabled }} sealedSecrets={{ .Values.sealedSecrets.enabled }} externalDns={{ .Values.externalDns.enabled }}
+
+Install this BEFORE charts that reference its CRDs (ExternalSecret, SealedSecret). ArgoCD sync-wave on this app is -1.
+
+Wire IRSA from terraform output:
+  --set externalSecrets.serviceAccount.roleArn=$(terraform output -raw eso_role_arn)
+  --set externalDns.serviceAccount.roleArn=$(terraform output -raw external_dns_role_arn)
+
+{{- if not .Values.externalSecrets.serviceAccount.roleArn }}
+
+WARNING: externalSecrets.serviceAccount.roleArn empty. ESO will fall back to node IAM and ClusterSecretStore will error.
+{{- end }}
+{{- if not .Values.externalDns.serviceAccount.roleArn }}
+
+WARNING: externalDns.serviceAccount.roleArn empty. external-dns will fail to write Route53 records.
+{{- end }}
