@@ -1,0 +1,93 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    variant: knative
+spec:
+  template:
+    metadata:
+      annotations:
+        # scale-to-zero with up to 10 replicas under load.
+        # containerConcurrency=20 caps fan-in per pod; the 21st in-flight
+        # request gets queued or scales out a new pod.
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/target: "15"
+        autoscaling.knative.dev/metric: "concurrency"
+        # 5min grace before scale-to-zero. python interpreter +
+        # httpx init costs ~2s cold; bursty traffic shouldn't eat that.
+        autoscaling.knative.dev/scaleToZeroGracePeriod: "5m"
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 300
+      serviceAccountName: openproject-mcp
+      containers:
+        - name: openproject-mcp
+          image: gsst3ja/openproject-mcp:0.4.0
+          ports:
+            - name: http1
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MCP_KAFKA_ENABLED
+              value: "1"
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability.svc.cluster.local:4317
+            - name: OTEL_SERVICE_NAME
+              value: openproject-mcp-knative
+            - name: OPENPROJECT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: openproject-mcp-config
+                  key: openproject_url
+            - name: OPENPROJECT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openproject-mcp-secrets
+                  key: openproject_api_key
+            - name: MCP_KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef:
+                  name: openproject-mcp-config
+                  key: kafka_bootstrap
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
