@@ -1,0 +1,32 @@
+{{- if .Values.istio.destinationRule.enabled }}
+---
+# DestinationRule for the openproject web service. ISTIO_MUTUAL pairs
+# with the namespace-wide PeerAuthentication STRICT (see
+# istio/peer-authentication.yaml). Without it the sidecar would attempt
+# plaintext and get rejected. Outlier detection ejects rails pods that
+# start 5xx-ing under load so traffic shifts to healthy replicas.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ include "openproject.fullname" . }}
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+spec:
+  host: {{ include "openproject.backendService" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 200
+      http:
+        # rails is single-threaded per worker. cap fan-in so a slow
+        # query can't queue the world.
+        http2MaxRequests: 200
+        maxRequestsPerConnection: 20
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50
+{{- end }}
