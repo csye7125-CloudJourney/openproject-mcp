@@ -1,0 +1,94 @@
+# prod overrides for the observability wrapper chart.
+# install:
+#   helm install obs ./helm/observability -n observability \
+#     -f helm/observability/values.yaml \
+#     -f helm/observability/values-prod.yaml
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      retention: 30d
+      retentionSize: 80GiB
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 4Gi
+        limits:
+          cpu: 4000m
+          memory: 16Gi
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 100Gi
+      # remote_write to AMP workspace from terraform output
+      remoteWrite:
+        - url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/REPLACE_WS_ID/api/v1/remote_write
+          sigv4:
+            region: us-east-1
+  alertmanager:
+    alertmanagerSpec:
+      replicas: 3
+  grafana:
+    persistence:
+      size: 20Gi
+    # admin password supplied by ExternalSecret in same namespace
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+
+elasticsearch:
+  replicas: 3
+  esJavaOpts: "-Xmx4g -Xms4g"
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 8Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  volumeClaimTemplate:
+    resources:
+      requests:
+        storage: 100Gi
+  antiAffinity: "hard"
+  esConfig:
+    elasticsearch.yml: |
+      xpack.security.enabled: true
+      xpack.security.transport.ssl.enabled: true
+      xpack.monitoring.collection.enabled: true
+
+kibana:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+otel-collector:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+jaeger:
+  collector:
+    replicaCount: 3
+  query:
+    replicaCount: 2
+
+alertmanager:
+  routes:
+    # secret refs - real values land via external secrets operator
+    pagerdutyServiceKey: ""
+    slackWebhookUrl: ""
