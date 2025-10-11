@@ -1,0 +1,45 @@
+{{- if .Values.istio.virtualService.enabled }}
+---
+# VirtualService for OpenProject. Mirrors istio/virtual-service.yaml
+# (the MCP one): same gateway, same mesh. Single backend; OP is a
+# stateful Rails app so two versions side by side isn't an option.
+# /health_checks gets a short timeout so the readiness path doesn't
+# hold sockets open.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ include "openproject.fullname" . }}
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ .Values.host | quote }}
+    - {{ printf "%s.%s.svc.cluster.local" (include "openproject.backendService" .) .Release.Namespace | quote }}
+  gateways:
+    {{- range .Values.istio.virtualService.gateways }}
+    - {{ . | quote }}
+    {{- end }}
+    - mesh
+  http:
+    - name: health
+      match:
+        - uri:
+            prefix: /health_checks
+      route:
+        - destination:
+            host: {{ include "openproject.backendService" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.openproject.service.port }}
+      timeout: 5s
+    - name: default
+      route:
+        - destination:
+            host: {{ include "openproject.backendService" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.openproject.service.port }}
+      timeout: {{ .Values.istio.virtualService.timeout | default "60s" }}
+      retries:
+        attempts: 2
+        perTryTimeout: 30s
+        retryOn: 5xx,reset,connect-failure
+{{- end }}
