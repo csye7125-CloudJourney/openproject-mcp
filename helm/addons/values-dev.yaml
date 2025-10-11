@@ -1,0 +1,37 @@
+# Dev env overrides for addons.
+# IRSA role arns wired in by Jenkins from `terraform output` against the
+# dev env state - kept blank here so the file is committable without
+# leaking account ids.
+
+region: us-east-1
+hostedZone: dev.t3ja.com
+
+externalSecrets:
+  enabled: true
+  serviceAccount:
+    roleArn: ""
+
+external-secrets:
+  # one replica is enough for dev - saves a few mB on the tiny dev nodes
+  replicaCount: 1
+  webhook:
+    replicaCount: 1
+
+sealedSecrets:
+  enabled: true
+  keyRotation:
+    enabled: true
+    # tighter cadence in dev so we exercise the rotation path more often
+    schedule: "0 3 1 * *"
+
+externalDns:
+  enabled: true
+  serviceAccount:
+    roleArn: ""
+
+external-dns:
+  domainFilters:
+    - dev.t3ja.com
+  txtOwnerId: openproject-mcp-dev
+  # noisier logs in dev to debug record reconciliation
+  logLevel: debug
