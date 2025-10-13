@@ -1,0 +1,72 @@
+# Demo knative revision rollout, 80% v1 / 20% v2 canary.
+# Apply AFTER service.yaml has rolled twice so two named revisions exist.
+# knative defaults to <service>-<random> revision names; we pin
+# canonical ones via revisionTemplate.metadata.name so the traffic
+# block below can reference them.
+#
+# rollout flow:
+#   1. apply service.yaml as openproject-mcp-v1 (revision name set)
+#   2. bump image tag to 0.5.0, rename revision to v2, apply
+#   3. apply THIS file -> knative splits 80/20
+#   4. once canary looks healthy, edit traffic: percent to 0/100, reapply
+#   5. drop the v1 entry from traffic: list to retire it
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: openproject-mcp
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    variant: knative
+spec:
+  template:
+    metadata:
+      name: openproject-mcp-v2
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 300
+      serviceAccountName: openproject-mcp
+      containers:
+        - name: openproject-mcp
+          image: gsst3ja/openproject-mcp:0.5.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability.svc.cluster.local:4317
+  traffic:
+    - revisionName: openproject-mcp-v1
+      percent: 80
+      tag: stable
+    - revisionName: openproject-mcp-v2
+      percent: 20
+      tag: canary
+---
+# Header-based steering for QA. Clients setting x-mcp-channel: canary
+# always land on v2, regardless of the weighted split.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: openproject-mcp-channel
+  namespace: openproject-mcp
+spec:
+  hosts:
+    - openproject-mcp.openproject-mcp.svc.cluster.local
+  http:
+    - match:
+        - headers:
+            x-mcp-channel:
+              exact: canary
+      route:
+        - destination:
+            host: canary-openproject-mcp.openproject-mcp.svc.cluster.local
+    - route:
+        - destination:
+            host: openproject-mcp.openproject-mcp.svc.cluster.local
