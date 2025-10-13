@@ -1,0 +1,89 @@
+{{- if .Values.seed.enabled }}
+---
+# Data load Job. Two steps in one pod:
+#   1) OpenProject's stock seed-data rake task (demo project, a handful
+#      of work packages, default statuses/types). Idempotent.
+#   2) Synthetic data generator: rails runner that bulk-creates N
+#      projects + M work packages so the kafka ingest path sees real
+#      volume during load tests.
+# Gated by .Values.seed.enabled so a regular install doesn't clobber
+# existing data.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openproject.fullname" . }}-seed
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+  annotations:
+    # post-install,post-upgrade keeps this attached to the release so
+    # it fires after the main Deployment is up.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "openproject.labels" . | nindent 8 }}
+        job: seed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: "openproject/community:{{ .Values.openproject.image.tag }}"
+          imagePullPolicy: {{ .Values.openproject.image.pullPolicy }}
+          # SECRET_KEY_BASE + DATABASE_URL come from the same external
+          # secret the main pod uses; rails console then has the env
+          # it needs to connect.
+          envFrom:
+            - secretRef:
+                name: openproject-db
+            - secretRef:
+                name: openproject-rails
+          env:
+            - name: RAILS_ENV
+              value: production
+            - name: SEED_PROJECT_COUNT
+              value: {{ .Values.seed.projects | quote }}
+            - name: SEED_WP_PER_PROJECT
+              value: {{ .Values.seed.workPackagesPerProject | quote }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              echo "==> step 1: stock openproject seed-data"
+              bundle exec rake db:seed
+              echo "==> step 2: synthetic load data"
+              bundle exec rails runner '
+                project_count = Integer(ENV.fetch("SEED_PROJECT_COUNT", "5"))
+                wp_count      = Integer(ENV.fetch("SEED_WP_PER_PROJECT", "50"))
+                admin = User.where(admin: true).first || User.first
+                project_count.times do |i|
+                  proj = Project.find_or_create_by!(identifier: "seed-#{i}") do |p|
+                    p.name = "Seed #{i}"
+                    p.public = false
+                  end
+                  wp_count.times do |j|
+                    WorkPackage.create!(
+                      project: proj,
+                      subject: "seed wp #{i}-#{j}",
+                      type: Type.first,
+                      status: Status.first,
+                      priority: IssuePriority.first,
+                      author: admin
+                    )
+                  end
+                end
+                puts "synthetic seed complete - #{project_count} projects #{project_count * wp_count} work packages"
+              '
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+{{- end }}
