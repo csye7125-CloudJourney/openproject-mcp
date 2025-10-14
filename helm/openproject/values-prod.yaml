@@ -1,0 +1,50 @@
+# prod env overrides for the openproject wrapper.
+# anything not set here falls back to values.yaml defaults.
+
+openproject:
+  # two replicas for the rails web tier. memcached + sidekiq stay single
+  # for now - rails workers are the bench-relevant capacity knob.
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 50Gi
+
+  memcached:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+externalSecrets:
+  dbPasswordSecretId: openproject/prod/db-password
+  secretKeyBaseSecretId: openproject/prod/secret-key-base
+  adminPasswordSecretId: openproject/prod/admin-password
+
+rds:
+  masterSecretId: openproject-mcp-prod/rds/master
+
+# Prod leaves user + database creation to a DBA running terraform or
+# psql out of band. The chart should only ever ship migrations + seed
+# in prod, never CREATE DATABASE.
+dbBootstrap:
+  enabled: false
+
+# bench data load. prod uses a heavier dataset so p95 latency numbers
+# come from real volume. flip seed.enabled=true via --set, not in this
+# file, so helm upgrade doesn't re-seed accidentally.
+seed:
+  projects: 25
+  workPackagesPerProject: 500
