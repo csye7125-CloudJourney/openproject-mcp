@@ -1,0 +1,67 @@
+# Default broker for the namespace. Provided by the knative-eventing
+# operator. mt-channel-based broker uses a kafka topic as the broker
+# channel for at-least-once delivery.
+apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: default
+  namespace: openproject-mcp
+  annotations:
+    eventing.knative.dev/broker.class: Kafka
+spec:
+  config:
+    apiVersion: v1
+    kind: ConfigMap
+    name: kafka-broker-config
+    namespace: knative-eventing
+---
+# Routes openproject.event.raw CloudEvents to the openproject-mcp
+# knative service. Filter on ce-type so unrelated events on the broker
+# (system audit etc.) bypass this trigger.
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: openproject-mcp-event-handler
+  namespace: openproject-mcp
+  labels:
+    app: openproject-mcp
+    component: knative-eventing
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: openproject.event.raw
+      source: openproject
+  subscriber:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: openproject-mcp
+    uri: /webhooks/openproject
+  delivery:
+    retry: 5
+    backoffPolicy: exponential
+    backoffDelay: "PT0.5S"
+    deadLetterSink:
+      ref:
+        apiVersion: v1
+        kind: Service
+        name: dlq-sink
+---
+# Sub-trigger that fans the same event into a debug-logger ksvc.
+# Scale-to-zero so it stays idle when nothing is watching.
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: openproject-mcp-event-tap
+  namespace: openproject-mcp
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: openproject.event.raw
+  subscriber:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: event-tap-logger
