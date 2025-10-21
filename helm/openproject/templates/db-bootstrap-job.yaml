@@ -1,0 +1,169 @@
+{{- if .Values.dbBootstrap.enabled }}
+---
+# Pre-install / pre-upgrade Helm hook. Runs BEFORE the opf/openproject
+# subchart's seeder Job (which expects the OP database + user to exist)
+# and before the rails web pod opens a connection.
+#
+# The four statements below previously ran via a manual
+# `kubectl run psql --rm -it ...` one-shot; now they're idempotent SQL
+# in this Job so helm upgrade is safe.
+#
+# Auth model:
+#   PGUSER / PGPASSWORD = RDS master user. Secret is synced from
+#   AWS Secrets Manager by ESO so terraform owns the master password.
+#   OP_DB_USER / OP_DB_PASSWORD come from the `openproject-db` Secret.
+#   Bootstrap forces the OP user password to match the Secret every
+#   run so Secrets Manager rotations land on the next helm upgrade.
+#
+# hook-delete-policy clears the Job pod once it finishes so a stale
+# Completed pod doesn't sit in the namespace.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openproject.fullname" . }}-db-bootstrap
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "openproject.labels" . | nindent 8 }}
+        job: db-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      # ESO syncs openproject-rds-master from AWS Secrets Manager
+      # asynchronously. Helm hook ordering guarantees the ExternalSecret
+      # CR exists before this Job, not the kube Secret it produces.
+      # Poll so bootstrap doesn't trip over "secret not found".
+      initContainers:
+        - name: wait-for-secrets
+          # bitnami's free public docker catalogue retired in 2025, images
+          # moved to bitnamilegacy. Pin until we self-host kubectl or
+          # switch to alpine/k8s.
+          image: bitnamilegacy/kubectl:1.30
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              for name in {{ .Values.rdsMasterSecret.name }} {{ .Values.openproject.postgresql.auth.existingSecret }}; do
+                echo "==> waiting for kube secret $name"
+                for i in $(seq 1 60); do
+                  if kubectl -n {{ .Release.Namespace }} get secret "$name" >/dev/null 2>&1; then
+                    echo "    ready after ${i} attempts"
+                    break
+                  fi
+                  if [ "$i" = "60" ]; then
+                    echo "    never appeared, giving up"
+                    exit 1
+                  fi
+                  sleep 5
+                done
+              done
+              echo "==> all secrets ready"
+      serviceAccountName: {{ include "openproject.fullname" . }}-db-bootstrap
+      containers:
+        - name: bootstrap
+          image: {{ .Values.dbBootstrap.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: {{ .Values.rds.endpoint | quote }}
+            - name: PGPORT
+              value: {{ .Values.rds.port | quote }}
+            - name: PGUSER
+              value: {{ .Values.rds.adminUsername | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.rds.adminDatabase | quote }}
+            - name: PGSSLMODE
+              value: require
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.rdsMasterSecret.name | quote }}
+                  key: {{ .Values.rdsMasterSecret.passwordKey | quote }}
+            - name: OP_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openproject.postgresql.auth.existingSecret | quote }}
+                  key: username
+                  optional: true
+            - name: OP_DB_USER_FALLBACK
+              value: {{ .Values.openproject.postgresql.auth.username | quote }}
+            - name: OP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openproject.postgresql.auth.existingSecret | quote }}
+                  key: {{ .Values.openproject.postgresql.auth.secretKeys.userPasswordKey | quote }}
+            - name: OP_DB_NAME
+              value: {{ .Values.openproject.postgresql.auth.database | quote }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              # `username` on the openproject-db Secret is optional
+              # (older ESO templates omit it). Fall back to the chart
+              # default when missing so older releases still bootstrap.
+              OP_DB_USER="${OP_DB_USER:-$OP_DB_USER_FALLBACK}"
+              if [[ -z "$OP_DB_USER" ]]; then
+                OP_DB_USER="$OP_DB_USER_FALLBACK"
+              fi
+
+              echo "==> bootstrap target: host=$PGHOST db=$OP_DB_NAME user=$OP_DB_USER"
+
+              # psql -v passes dynamic identifiers + literals as session
+              # variables. :"foo" expands as a quoted identifier; :'foo'
+              # as a quoted string literal. Safe against weird chars in
+              # OP_DB_*.
+              psql -v ON_ERROR_STOP=1 \
+                -v op_user="$OP_DB_USER" \
+                -v op_pass="$OP_DB_PASSWORD" \
+                -v op_db="$OP_DB_NAME" <<'SQL'
+              -- 1. create the OpenProject role if it isn't already
+              --    there. gated so a re-run on upgrade is a no-op.
+              SELECT format('CREATE USER %I WITH LOGIN PASSWORD %L', :'op_user', :'op_pass')
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'op_user'
+              )
+              \gexec
+
+              -- 2. force the password to whatever the current kube
+              --    Secret says it should be. Picks up Secrets Manager
+              --    rotations on the next helm upgrade.
+              SELECT format('ALTER USER %I WITH PASSWORD %L', :'op_user', :'op_pass')
+              \gexec
+
+              -- 3. create the OP database if missing. CREATE DATABASE
+              --    can't run inside a transaction or DO block so we
+              --    \gexec it the same way.
+              SELECT format('CREATE DATABASE %I OWNER %I', :'op_db', :'op_user')
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_database WHERE datname = :'op_db'
+              )
+              \gexec
+
+              -- 4. grant db-level privileges. Safe to re-run, postgres
+              --    treats a no-op grant as a no-op.
+              SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'op_db', :'op_user')
+              \gexec
+              SQL
+
+              echo "==> bootstrap done"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+{{- end }}
