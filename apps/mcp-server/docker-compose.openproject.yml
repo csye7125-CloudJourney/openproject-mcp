@@ -1,0 +1,68 @@
+version: '3.8'
+
+# local-dev stack mirroring what helm/openproject deploys on EKS. Lets
+# you exercise the webhook -> MCP -> kafka path against a real
+# OpenProject without touching the cluster. Sized small, no resource
+# limits. your laptop fans will tell you when it's working.
+#
+# Usage:
+#   cd apps/mcp-server
+#   docker compose -f docker-compose.yml -f docker-compose.openproject.yml up
+#
+# Composes with the existing docker-compose.yml so the MCP service
+# already declared there sees `openproject` as its upstream host. The OP
+# container takes a couple of minutes on first boot to run db
+# migrations. watch `docker logs -f openproject-op` for the listening
+# message.
+
+services:
+  openproject-op:
+    image: openproject/community:14
+    container_name: openproject-op
+    restart: unless-stopped
+    environment:
+      - OPENPROJECT_SECRET_KEY_BASE=local-dev-only-not-secure
+      - OPENPROJECT_HOST__NAME=localhost:8080
+      - OPENPROJECT_HTTPS=false
+      - DATABASE_URL=postgresql://openproject:openproject@openproject-db:5432/openproject
+      - RAILS_CACHE_STORE=memcache
+      - OPENPROJECT_CACHE__MEMCACHE__SERVER=openproject-cache:11211
+      - OPENPROJECT_RAILS__RELATIVE__URL__ROOT=
+    ports:
+      - "8080:8080"
+    volumes:
+      - openproject_attachments:/var/openproject/assets
+    depends_on:
+      - openproject-db
+      - openproject-cache
+    networks:
+      - openproject-network
+
+  openproject-db:
+    image: postgres:13
+    container_name: openproject-db-local
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=openproject
+      - POSTGRES_USER=openproject
+      - POSTGRES_PASSWORD=openproject
+    volumes:
+      - openproject_postgres:/var/lib/postgresql/data
+    networks:
+      - openproject-network
+
+  openproject-cache:
+    image: memcached:1.6-alpine
+    container_name: openproject-cache-local
+    restart: unless-stopped
+    networks:
+      - openproject-network
+
+volumes:
+  openproject_attachments:
+  openproject_postgres:
+
+networks:
+  openproject-network:
+    name: openproject-network
+    driver: bridge
