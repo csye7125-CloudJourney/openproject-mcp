@@ -1,0 +1,54 @@
+{{- if .Values.dbBootstrap.enabled }}
+---
+# Minimal RBAC for the db-bootstrap Job's wait-for-secret initContainer.
+# It needs `kubectl get secret` against its own namespace, nothing else.
+# Hook annotations mirror the Job's so SA/Role/RoleBinding life-cycle
+# alongside it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "openproject.fullname" . }}-db-bootstrap
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "openproject.fullname" . }}-db-bootstrap
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      - {{ .Values.rdsMasterSecret.name | quote }}
+      - {{ .Values.openproject.postgresql.auth.existingSecret | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "openproject.fullname" . }}-db-bootstrap
+  labels:
+    {{- include "openproject.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "openproject.fullname" . }}-db-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openproject.fullname" . }}-db-bootstrap
+    namespace: {{ .Release.Namespace }}
+{{- end }}
