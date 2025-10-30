@@ -7,7 +7,7 @@
 #   # (Settings > Deploy keys, allow write access)
 #   kubectl -n argocd create secret generic openproject-mcp-manifests-repo \
 #     --from-file=sshPrivateKey=/tmp/argocd-manifests \
-#     --from-literal=url=git@github.com:gssteja/openproject-mcp-manifests.git \
+#     --from-literal=url=git@github.com:csye7125-CloudJourney/openproject-mcp-manifests.git \
 #     --from-literal=type=git \
 #     --dry-run=client -o yaml \
 #     | kubeseal --controller-namespace kube-system --format yaml \

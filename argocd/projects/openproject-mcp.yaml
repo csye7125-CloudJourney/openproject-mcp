@@ -10,7 +10,7 @@ spec:
     Scope for openproject-mcp Applications. Restricts the git sources,
     destinations, and resource kinds these apps may touch.
   sourceRepos:
-    - git@github.com:gssteja/openproject-mcp-manifests.git
+    - git@github.com:csye7125-CloudJourney/openproject-mcp-manifests.git
   destinations:
     - namespace: openproject-mcp
       server: https://kubernetes.default.svc

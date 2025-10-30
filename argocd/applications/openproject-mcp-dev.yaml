@@ -19,7 +19,7 @@ metadata:
 spec:
   project: openproject-mcp
   source:
-    repoURL: git@github.com:gssteja/openproject-mcp-manifests.git
+    repoURL: git@github.com:csye7125-CloudJourney/openproject-mcp-manifests.git
     targetRevision: main
     path: manifests/openproject-mcp/overlays/dev
   destination:
