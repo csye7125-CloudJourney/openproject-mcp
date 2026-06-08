@@ -79,8 +79,8 @@ Jenkinsfile           declarative pipeline (root)
 | Repo | Purpose |
 |---|---|
 | `openproject-mcp-charts` | Published Helm chart repo (GitHub Pages, gh-pages branch) |
-| `openproject-mcp-manifests` | ArgoCD's GitOps target - Kustomize overlays per env |
-| `openproject-mcp-operator` | Go operator (Kubebuilder) for the `OpenProjectMCP` CRD |
+| [`openproject-mcp-manifests`](https://github.com/csye7125-CloudJourney/openproject-mcp-manifests) | ArgoCD's GitOps target - Kustomize overlays per env |
+| [`openproject-mcp-operator`](https://github.com/csye7125-CloudJourney/openproject-mcp-operator) | Go operator (Kubebuilder) for the `OpenProjectMCP` CRD |
 
 Each is its own git repo. Jenkins publishes the chart, bumps the
 image tag in the manifests repo, and ArgoCD picks it up.
